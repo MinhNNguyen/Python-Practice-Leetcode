@@ -5,6 +5,7 @@ class Solution:
         for pos in range( len(nums) - 1, 0, -1):
             if nums[pos] > nums[pos - 1]:
                 # find the smallest number that is bigger than pos - 1 to swap with it
+                # in case of number being similar case, always find the similar number toward the end of the list
                 minBigger = nums[pos]
                 minIndex = pos
                 for index in range(pos, len(nums) ):
