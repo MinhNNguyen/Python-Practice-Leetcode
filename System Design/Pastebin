@@ -1,0 +1,166 @@
+Design Pastebin (Bit.ly)
+
+1. Outline use cases and constraints
+
+- Use cases: users enter a block of text and gets a randomly generated link
+Expiration: Default settings does not expire, can set a timed expiration
+
+- User enters a paste's url and views the content
+- User is anonymous
+- Service tracks analytics of pages: monthly visit stats
+- Service deletes expired pastes
+- Services has high availability
+
+Out of scope:
+- User registers account and verify emails
+- User logs into registered account and edits the document
+- User can set visibility
+- User can set the shortlink
+
+Constraints and assumptions:
+- Traffic is not evenly distributed
+- Following a short link should be fast
+- Pastes are text only
+- Page view analytics do not need to be realtime
+- 10 million users
+- 10 million pastes writes per month
+- 100 million paste reads per month
+- 10:1 read: write ratio
+
+Calculate usage:
+- Size per paste: 1 KB content
+- short link: 7 bytes
+- expiration_length_in_minutes: 4 bytes
+- created_at: 5 bytes
+- pastepath: 255 bytes -> 1.27 KB
+
+-> 12.7 GB of paste contents per month
+-> 450 GB of new paste contents in 3 years
+-> 360 mils shortlinks in 3 years
+-> 4 pastes write per second on average
+-> 40 read requests per second
+
+Handy conversion:
+- 2.5 million seconds a month
+- 1 request per second = 2.5 millions request per month
+- 40 request per second -> 100 million requests per month
+- 400 -> 1 billion
+
+Create high level design:
+Client -> Web Server
+Web Server -> Write API
+Web Server -> Read API
+Write, Read API -> SQL
+Write, Read API -> Object Store
+analytics -> SQL, Object Store
+
+Step 3: Deign core components
+
+Use relational database as a large hash table, mapping generated URL to a file server and path containing the paste file
+Insteaad of managing the file server, we could use object store such as Amazon S3 or NoSQL document store
+
+An alternative to a relational database is to use a NoSQL key-value store
+
+The following approach goes with relational database approach
+- The Client runs a createa paste request send to web server, running as reverse proxy
+- The web server forwards the request to Write API server
+- The Write API does:
+  - Generate the unique url
+  - Saves to the SQL pastes table
+  - Save the paste data to Object Store
+  - Return the url
+
+pastes table structure: Primary key - shortlink - char(7) NOT NULL, expiration_length_in_minutes int NOT NULL, created_at_date_time data NOT NULL,
+paste_path varchar(255) NOT NULL
+
+We'll create an index on shortlink and created_at to speed up lookups
+(Reading 1 MB sequentially from memory takes about 250 microseconds, while reading from SSD takes 4x and from disks takes 80x longer)
+
+To generate unique url, we could:
+- Take MD5 hash of the user's ipadress + timestamp
+- MD5 is uniformly distributed
+- We could take MD5 of randomly generated data
+Base 62 encode of MD5 hash
+- Base 62 [a-zA-Z0-9] works well for url, eliminating the escapes of special chars
+
+def base_encode(num, base=62):
+    digits = []
+    while num > 0
+      remainder = modulo(num, base)
+      digits.push(remainder)
+      num = divide(num, base)
+    digits = digits.reverse
+
+We will use a public REST API:
+$ curl -X POST --data '{ "expiration_length_in_minutes": "60", \
+    "paste_contents": "Hello World!" }' https://pastebin.com/api/v1/paste
+
+Response: 
+{
+    "shortlink": "foobar"
+}
+
+Use case: user enters a paste's url and see the content
+- The client sends the paste request to the Web Server
+- The server forward the request to Read API Server
+- The Read API server does the following:
+  - Check the SQL database for generated url
+
+REST API:
+$ curl https://pastebin.com/api/v1/paste?shortlink=foobar
+
+Response:
+{
+    "paste_contents": "Hello World"
+    "created_at": "YYYY-MM-DD HH:MM:SS"
+    "expiration_length_in_minutes": "60"
+}
+
+Use case: service track analytics of pages
+
+Since realtime analytics is not a requirement, we simply MapReduce the Web Server logs to generate hit counts
+
+class HitCounts(MRJob):
+
+    def extract_url(self, line):
+        """Extract the generated url from the log line."""
+        ...
+
+    def extract_year_month(self, line):
+        """Return the year and month portions of the timestamp."""
+        ...
+
+    def mapper(self, _, line):
+        """Parse each log line, extract and transform relevant lines.
+
+        Emit key value pairs of the form:
+
+        (2016-01, url0), 1
+        (2016-01, url0), 1
+        (2016-01, url1), 1
+        """
+        url = self.extract_url(line)
+        period = self.extract_year_month(line)
+        yield (period, url), 1
+
+    def reducer(self, key, values):
+        """Sum values for each key.
+
+        (2016-01, url0), 2
+        (2016-01, url1), 1
+        """
+        yield key, sum(values)
+
+Use cases: Services delete expired dates
+
+To delete the expired case, just can the SQL database for all entries whose expiration date is older than current timestamp.
+Then all those entries that matches will be deleted
+
+Step 4: scale the design
+
+Identify the bottlenecks:
+
+
+
+
+
