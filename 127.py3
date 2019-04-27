@@ -14,7 +14,7 @@ class Solution:
                 else:
                     hmap[temp].append(word)
 
-        # Executing breadth first search from beginWord to find the endWord, if cannnot, then return 0
+        # Executing breadth first search from beginWord to find the endWord, if cannnot, then return 0  
         visited = []
         queue = [beginWord]
         level = 1
